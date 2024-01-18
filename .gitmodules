@@ -1,0 +1,3 @@
+[submodule "peanutgb"]
+	path = peanutgb
+	url = https://github.com/deltabeard/Peanut-GB
