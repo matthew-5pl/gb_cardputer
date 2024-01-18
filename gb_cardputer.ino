@@ -12,9 +12,8 @@ SPIClass SPI2;
 uint32_t swap_fb[144][160];
 
 void debugPrint(const char* str) {
-  //M5Cardputer.Display.clearDisplay();
-  //M5Cardputer.Display.drawString(str, 0, 0);
-  //sleep(1);
+  M5Cardputer.Display.clearDisplay();
+  M5Cardputer.Display.drawString(str, 0, 0);
 }
 
 struct priv_t
@@ -127,8 +126,6 @@ void draw_frame(uint32_t fb[144][160]) {
       swap_fb[j][i] = fb[j][i];
     } 
   }
-
-
 }
 
 #endif
@@ -137,12 +134,14 @@ void setup() {
   // put your setup code here, to run once:
   auto cfg = M5.config();
   M5Cardputer.begin(cfg, true);
+
   M5Cardputer.Display.setRotation(1);
   int textsize = M5Cardputer.Display.height() / 256;
   if(textsize == 0) {
     textsize = 1;
   }
   M5Cardputer.Display.setTextSize(textsize);
+
   debugPrint("Waiting for SD Card to Init...");
   SPI2.begin(
       M5.getPin(m5::pin_name_t::sd_spi_sclk),
@@ -181,105 +180,76 @@ void setup() {
 
   debugPrint("Before loop");
 
-  int loops = 0;
-  char loopStr[30];
+  M5Cardputer.Display.clearDisplay();
   while(1) {
-    //const double target_speed_us = 1000000.0 / VERTICAL_SYNC;
-    //int_fast16_t delay;
-    //unsigned long start, end;
-    //struct timeval timecheck;
+    const double target_speed_us = 1000000.0 / VERTICAL_SYNC;
+    int_fast16_t delay;
+    unsigned long start, end;
+    struct timeval timecheck;
 
-    //debugPrint("before gettimeofday");
-
-    //gettimeofday(&timecheck, NULL);
-    //start = (long)timecheck.tv_sec * 1000000 +
-    //  (long)timecheck.tv_usec;
-
-    //debugPrint("before gb_run_frame");
+    gettimeofday(&timecheck, NULL);
+    start = (long)timecheck.tv_sec * 1000000 +
+      (long)timecheck.tv_usec;
 
     // reset joypad
-    //gb.direct.joypad = 0;
-    gb.direct.joypad_bits.a = 1;
-    gb.direct.joypad_bits.b = 1;
-    gb.direct.joypad_bits.start = 1;
-    gb.direct.joypad_bits.select = 1;
-    gb.direct.joypad_bits.up = 1;
-    gb.direct.joypad_bits.down = 1;
-    gb.direct.joypad_bits.left = 1;
-    gb.direct.joypad_bits.right = 1;
+    gb.direct.joypad = 0xff;
 
     M5Cardputer.update();
-    //if(M5Cardputer.Keyboard.isChange()) {
-      if(M5Cardputer.Keyboard.isPressed()) {
-        Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
-        for(auto i : status.word) {
-          //char btnStr[3];
-          //sprintf(btnStr, "%c", i);
-          //M5Cardputer.Display.drawString(btnStr, 0, 0);
-          //sleep(1);
-          switch(i) {
-            case 'e':
-              gb.direct.joypad_bits.up = 0;
-              break;
-            case 'a':
-              gb.direct.joypad_bits.left = 0;
-              break;
-            case 's':
-              gb.direct.joypad_bits.down = 0;
-              break;
-            case 'd':
-              gb.direct.joypad_bits.right = 0;
-              break;
-            case 'k':
-              gb.direct.joypad_bits.b = 0;
-              break;
-            case 'l':
-              gb.direct.joypad_bits.a = 0;
-              break;
-            case '1':
-              gb.direct.joypad_bits.start = 0;
-              break;
-            case '2':
-              gb.direct.joypad_bits.select = 0;
-              break;
-            default:
-              break;
-          }
+    if(M5Cardputer.Keyboard.isPressed()) {
+      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+      for(auto i : status.word) {
+        switch(i) {
+          case 'e':
+            gb.direct.joypad_bits.up = 0;
+            break;
+          case 'a':
+            gb.direct.joypad_bits.left = 0;
+            break;
+          case 's':
+            gb.direct.joypad_bits.down = 0;
+            break;
+          case 'd':
+            gb.direct.joypad_bits.right = 0;
+            break;
+          case 'k':
+            gb.direct.joypad_bits.b = 0;
+            break;
+          case 'l':
+            gb.direct.joypad_bits.a = 0;
+            break;
+          case '1':
+            gb.direct.joypad_bits.start = 0;
+            break;
+          case '2':
+            gb.direct.joypad_bits.select = 0;
+            break;
+          default:
+            break;
         }
       }
-    //}
+    }
 
     /* Execute CPU cycles until the screen has to be redrawn. */
     gb_run_frame(&gb);
 
-    //debugPrint("before draw_frame");
-
     // draw here.
     draw_frame(priv.fb);
 
-    //debugPrint("before 2nd gettimeofday");
+    gettimeofday(&timecheck, NULL);
+    end = (long)timecheck.tv_sec * 1000000 +
+            (long)timecheck.tv_usec;
 
-    //gettimeofday(&timecheck, NULL);
-    //end = (long)timecheck.tv_sec * 1000000 +
-    //        (long)timecheck.tv_usec;
-
-    //delay = target_speed_us - (end - start);
-
-    //debugPrint("after 2nd gettimeofday");
+    delay = target_speed_us - (end - start);
 
     /* If it took more than the maximum allowed time to draw frame,
     * do not delay.
     * Interlaced mode could be enabled here to help speed up
     * drawing.
     */
-    //if(delay < 0)
-    //  continue;
+    if(delay < 0)
+      continue;
 
-    //usleep(delay);
-
-    //loops++;
-    //sprintf(loopStr, "loops done: %d", loops);
-    //debugPrint(loopStr);
+    usleep(delay);
   }
 }
 
