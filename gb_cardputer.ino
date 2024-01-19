@@ -3,6 +3,8 @@
 #define ENABLE_SOUND 0
 #define ENABLE_LCD 1
 
+#define MAX_FILES 256
+
 #include "M5Cardputer.h"
 #include "peanutgb/peanut_gb.h"
 #include "SD.h"
@@ -12,6 +14,8 @@
 
 #define DEST_W 240
 #define DEST_H 135
+
+#define DEBUG_DELAY 0
 
 #define DISPLAY_CENTER(x) x + (DEST_W/2 - LCD_WIDTH/2)
 
@@ -25,6 +29,9 @@ uint32_t swap_fb[LCD_HEIGHT][LCD_WIDTH];
 void debugPrint(const char* str) {
   M5Cardputer.Display.clearDisplay();
   M5Cardputer.Display.drawString(str, 0, 0);
+#if DEBUG_DELAY
+  delay(500);
+#endif
 }
 
 // Penaut-GB structures and functions.
@@ -160,6 +167,92 @@ void draw_frame(uint32_t fb[144][160]) {
 
 #endif
 
+char* file_picker(int text_size) {
+  File root_dir = SD.open("/");
+  String file_list[MAX_FILES];
+  int file_list_size = 0;
+  while(1) {
+    File file_entry = root_dir.openNextFile();
+    if(!file_entry) {
+      break;
+    }
+
+    if(!file_entry.isDirectory()) {
+      String file_name = file_entry.name();
+      String file_extension = file_name.substring(file_name.lastIndexOf(".") + 1);
+      file_extension.toLowerCase();
+
+      if(!file_extension.equals("gb")) {
+        continue;
+      }
+
+      file_list[file_list_size] = file_name;
+      file_list_size++;
+    }
+
+    file_entry.close();
+  }
+
+  root_dir.close();
+  
+  bool file_picked = false;
+  int select_index = 0;
+
+  M5Cardputer.Display.clearDisplay();
+
+  char* file_list_cstr[MAX_FILES];
+  for(int i = 0; i < file_list_size; i++) {
+    file_list_cstr[i] = (char*)malloc(sizeof(char)*MAX_FILES);
+    file_list[i].toCharArray(file_list_cstr[i], MAX_FILES);
+  }
+
+  while(!file_picked) {
+    M5Cardputer.update();
+    if(M5Cardputer.Keyboard.isPressed()) {
+      Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+      M5Cardputer.Display.clearDisplay();
+      for(auto i : status.word) {
+        switch(i) {
+          case 'e':
+            select_index--;
+            delay(300);
+            break;
+          case 's':
+            select_index++;
+            delay(300);
+            break;
+          case 'l':
+            file_picked = true;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+
+    if(select_index < 0) {
+      select_index = file_list_size-1;
+    } else if(select_index > file_list_size-1) {
+      select_index = 0;
+    }
+
+    M5Cardputer.Display.drawString("Up/Down: E/S; Select: L", 0, 0);
+
+    for(int i = 0; i < file_list_size; i++) {
+      if(select_index == i) {
+        M5Cardputer.Display.drawString(" > ", 0, 10+i*10);
+        M5Cardputer.Display.drawString(file_list_cstr[i], 20, 10+i*10);
+      } else {
+        M5Cardputer.Display.drawString(file_list_cstr[i], 0, 10+i*10);
+      }
+    }
+  }
+
+  char* selected_path = (char*)malloc(sizeof(char)*MAX_FILES+sizeof(char));
+  sprintf(selected_path, "/%s", file_list_cstr[select_index]);
+  return selected_path;
+}
+
 void setup() {
   // put your setup code here, to run once:
 
@@ -188,7 +281,6 @@ void setup() {
   while (false == SD.begin(M5.getPin(m5::pin_name_t::sd_spi_ss), SPI2)) {
     delay(1);
   }
-  debugPrint("setTextSize");
 
   // Initialize GameBoy emulation context.
   static struct gb_s gb;
@@ -196,8 +288,14 @@ void setup() {
   enum gb_init_error_e ret;
   debugPrint("postInit");
 
+  
+  debugPrint("Before filepick");
+  char* selected_file = file_picker(textsize);
+  debugPrint(selected_file);
+  debugPrint("After filepick");
+
   // Check for errors in reading the ROM file.
-  if((priv.rom = read_rom_to_ram(ROM_FILE)) == NULL) {
+  if((priv.rom = read_rom_to_ram(selected_file)) == NULL) {
     // error reporting
     debugPrint("Error at read_rom_to_ram!!");
   }
