@@ -1,3 +1,5 @@
+// Sound isn't done yet
+// (or might never be)
 #define ENABLE_SOUND 0
 #define ENABLE_LCD 1
 
@@ -5,17 +7,27 @@
 #include "peanutgb/peanut_gb.h"
 #include "SD.h"
 
+// TODO: Make a menu to pick ROM files from the SD card
 #define ROM_FILE "/rom.gb"
 
+#define DEST_W 240
+#define DEST_H 135
+
+#define DISPLAY_CENTER(x) x + (DEST_W/2 - LCD_WIDTH/2)
+
+// SD card SPI class.
 SPIClass SPI2;
 
-uint32_t swap_fb[144][160];
+// Second framebuffer to check for changed pixels.
+uint32_t swap_fb[LCD_HEIGHT][LCD_WIDTH];
 
+// Prints debug info to the display.
 void debugPrint(const char* str) {
   M5Cardputer.Display.clearDisplay();
   M5Cardputer.Display.drawString(str, 0, 0);
 }
 
+// Penaut-GB structures and functions.
 struct priv_t
 {
 	/* Pointer to allocated memory holding GB file. */
@@ -59,6 +71,7 @@ void gb_cart_ram_write(struct gb_s *gb, const uint_fast32_t addr,
  * Returns a pointer to the allocated space containing the ROM. Must be freed.
  */
 uint8_t *read_rom_to_ram(const char *file_name) {
+  // Open file from the SD card.
   File rom_file = SD.open(file_name);
   size_t rom_size;
   char *readRom = NULL;
@@ -78,6 +91,7 @@ uint8_t *read_rom_to_ram(const char *file_name) {
 
   uint8_t *rom = (uint8_t*)readRom;
   char debugRomStr[100];
+  // Print first and last byte of the ROM for debugging purposes.
   sprintf(debugRomStr, "f: %02x | l: %02x", rom[0], rom[rom_size-1]);
   debugPrint(debugRomStr);
   rom_file.close();
@@ -116,8 +130,24 @@ void lcd_draw_line(struct gb_s *gb, const uint8_t pixels[160],
 		priv->fb[line][x] = palette[pixels[x] & 3];
 }
 
-void draw_frame(uint32_t fb[144][160]) {
+// Draw a frame to the display while scaling it to fit.
+// This is needed as the Cardputer's display has a height of 135px,
+// while the GameBoy's has a height of 144px.
+void fit_frame(uint32_t fb[144][160]) {
   //M5Cardputer.Display.clearDisplay();
+  for(unsigned int i = 0; i < LCD_WIDTH; i++) {
+    for(unsigned int j = 0; j < LCD_HEIGHT; j++) {
+      if(fb[j * LCD_HEIGHT / DEST_H][i] != swap_fb[j][i]) {
+        M5Cardputer.Display.drawPixel((int32_t)DISPLAY_CENTER(i), (int32_t)j, fb[j * LCD_HEIGHT / DEST_H][i]);
+      }
+      swap_fb[j][i] = fb[j * LCD_HEIGHT / DEST_H][i];
+    } 
+  }
+}
+
+// Draw a frame to the display without scaling.
+// Not normally called. Edit the code to use this function
+void draw_frame(uint32_t fb[144][160]) {
   for(unsigned int i = 0; i < LCD_WIDTH; i++) {
     for(unsigned int j = 0; j < LCD_HEIGHT; j++) {
       if(fb[j][i] != swap_fb[j][i]) {
@@ -132,9 +162,13 @@ void draw_frame(uint32_t fb[144][160]) {
 
 void setup() {
   // put your setup code here, to run once:
+
+  // Init M5Stack and M5Cardputer libs.
   auto cfg = M5.config();
+  // Use keyboard.
   M5Cardputer.begin(cfg, true);
 
+  // Set display rotation to horizontal.
   M5Cardputer.Display.setRotation(1);
   int textsize = M5Cardputer.Display.height() / 256;
   if(textsize == 0) {
@@ -142,6 +176,9 @@ void setup() {
   }
   M5Cardputer.Display.setTextSize(textsize);
 
+  // Initialize SD card.
+  // Some of this code is taken from
+  // https://github.com/shikarunochi/CardputerSimpleLaucher
   debugPrint("Waiting for SD Card to Init...");
   SPI2.begin(
       M5.getPin(m5::pin_name_t::sd_spi_sclk),
@@ -153,17 +190,18 @@ void setup() {
   }
   debugPrint("setTextSize");
 
+  // Initialize GameBoy emulation context.
   static struct gb_s gb;
   static struct priv_t priv;
   enum gb_init_error_e ret;
   debugPrint("postInit");
 
+  // Check for errors in reading the ROM file.
   if((priv.rom = read_rom_to_ram(ROM_FILE)) == NULL) {
     // error reporting
     debugPrint("Error at read_rom_to_ram!!");
   }
 
-  // Initialize emulation context
   ret = gb_init(&gb, &gb_rom_read, &gb_cart_ram_read, &gb_cart_ram_write, &gb_error, &priv);
 
   if(ret != GB_INIT_NO_ERROR) {
@@ -175,29 +213,49 @@ void setup() {
 
 #if ENABLE_LCD
   gb_init_lcd(&gb, &lcd_draw_line);
+  // Disable interlacing (this is default behaviour but ¯\_(ツ)_/¯)
   gb.direct.interlace = 0;
 #endif
 
   debugPrint("Before loop");
 
+  // Clear the display of any printed text before starting emulation.
   M5Cardputer.Display.clearDisplay();
+  
+  // Target game speed.
+  const double target_speed_us = 1000000.0 / VERTICAL_SYNC;
   while(1) {
-    const double target_speed_us = 1000000.0 / VERTICAL_SYNC;
+    // Variables needed to get steady frametimes.
     int_fast16_t delay;
     unsigned long start, end;
     struct timeval timecheck;
 
+    // Get current timer value
     gettimeofday(&timecheck, NULL);
     start = (long)timecheck.tv_sec * 1000000 +
       (long)timecheck.tv_usec;
 
-    // reset joypad
+    // Reset Joypad
+    // This works because button status
+    // is stored as a single 8-bit value,
+    // with 1 being the non-pressed state.
+    // This sets all bits to 1
     gb.direct.joypad = 0xff;
 
+    // Read Keyboard matrix
     M5Cardputer.update();
     if(M5Cardputer.Keyboard.isPressed()) {
       Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
+      // The Cardputer can detect up to 3 key updates at one time
       for(auto i : status.word) {
+        // Controls:
+        //      e
+        //     |=|                     [A]
+        // a |=====| d             [B]  l
+        //     |=|       //  //     k
+        //      s         2  1
+        //
+        // Might implement a config file to set these.
         switch(i) {
           case 'e':
             gb.direct.joypad_bits.up = 0;
@@ -232,13 +290,15 @@ void setup() {
     /* Execute CPU cycles until the screen has to be redrawn. */
     gb_run_frame(&gb);
 
-    // draw here.
-    draw_frame(priv.fb);
+    // Draw the current frame to the screen.
+    fit_frame(priv.fb);
 
+    // Get the time after running the CPU and rendering a frame.
     gettimeofday(&timecheck, NULL);
     end = (long)timecheck.tv_sec * 1000000 +
             (long)timecheck.tv_usec;
 
+    // Subtract time taken to render a frame to the target speed.
     delay = target_speed_us - (end - start);
 
     /* If it took more than the maximum allowed time to draw frame,
