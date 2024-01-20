@@ -167,25 +167,53 @@ void draw_frame(uint32_t fb[144][160]) {
 
 #endif
 
+// Opens a ROM file picker menu
+// and returns a string containing
+// the path of the picked ROM.
 char* file_picker(int text_size) {
+  // Open SD card root dir.
   File root_dir = SD.open("/");
   String file_list[MAX_FILES];
   int file_list_size = 0;
+
+  // Look for .gb files in the root dir.
   while(1) {
     File file_entry = root_dir.openNextFile();
+    // If we checked all files, stop searching
     if(!file_entry) {
       break;
     }
 
+    // Chec if the entry is a file
     if(!file_entry.isDirectory()) {
+      // Get the file extension
       String file_name = file_entry.name();
       String file_extension = file_name.substring(file_name.lastIndexOf(".") + 1);
+
+      // Convert the file extension to lowercase
+      //
+      // WARNING: major yapping ahead
+      //
+      // Note: SD cards might have to be formatted as FAT32 
+      // to work with this library; if that's the case then
+      // doing this doesn't make a difference because FAT32
+      // is case insensitive. However, the author of
+      // https://github.com/shikarunochi/CardputerSimpleLaucher
+      // (which much of the code in this function is edited from)
+      // added this line so I guess I can't be too sure.
+      // It's not like saving CPU cycles is important here
+      // Since this is only called when the menu is first shown so
+      //
+      // (not like any of this code is particularly efficient)
+      //
+      // yapping sesh over
       file_extension.toLowerCase();
 
       if(!file_extension.equals("gb")) {
         continue;
       }
 
+      // Add the ROM's filename to the array
       file_list[file_list_size] = file_name;
       file_list_size++;
     }
@@ -194,24 +222,38 @@ char* file_picker(int text_size) {
   }
 
   root_dir.close();
-  
+
+  // Boolean to check if a file has been picked.
+  // If so we should start the game (ofc lol)  
   bool file_picked = false;
   int select_index = 0;
 
   M5Cardputer.Display.clearDisplay();
 
+  // This might be kinda stupid but
+  // File.name() returns an Arduino-style
+  // String object, when Peanut-GB being
+  // written in C expects a plain old
+  // char array in its `read_rom_to_ram`
+  // callback, so we'll need to "convert" these strings
   char* file_list_cstr[MAX_FILES];
   for(int i = 0; i < file_list_size; i++) {
     file_list_cstr[i] = (char*)malloc(sizeof(char)*MAX_FILES);
     file_list[i].toCharArray(file_list_cstr[i], MAX_FILES);
   }
 
+  // Menu loop
   while(!file_picked) {
+    // Read Keyboard matrix
     M5Cardputer.update();
     if(M5Cardputer.Keyboard.isPressed()) {
       Keyboard_Class::KeysState status = M5Cardputer.Keyboard.keysState();
       M5Cardputer.Display.clearDisplay();
       for(auto i : status.word) {
+        // Controls:
+        // Up: e
+        // Down: s
+        // Play: l
         switch(i) {
           case 'e':
             select_index--;
@@ -230,15 +272,22 @@ char* file_picker(int text_size) {
       }
     }
 
+    // Loop over list if we went over its bounds
+    // e.g. user presses up on the first element
+    // or down on the last one
     if(select_index < 0) {
       select_index = file_list_size-1;
     } else if(select_index > file_list_size-1) {
       select_index = 0;
     }
 
+    // Render controls
     M5Cardputer.Display.drawString("Up/Down: E/S; Select: L", 0, 0);
 
+    // Render list
     for(int i = 0; i < file_list_size; i++) {
+      // Add an arrow to point to 
+      // the currently selected file
       if(select_index == i) {
         M5Cardputer.Display.drawString(" > ", 0, 10+i*10);
         M5Cardputer.Display.drawString(file_list_cstr[i], 20, 10+i*10);
@@ -248,6 +297,7 @@ char* file_picker(int text_size) {
     }
   }
 
+  // Return '/' + selected file path
   char* selected_path = (char*)malloc(sizeof(char)*MAX_FILES+sizeof(char));
   sprintf(selected_path, "/%s", file_list_cstr[select_index]);
   return selected_path;
@@ -411,6 +461,11 @@ void setup() {
   }
 }
 
+// Unused as I'm using an infinite while-loop
+// inside the main function because otherwise
+// I'd need to deal with global variables
+// which are stupid (doing that gave me an
+// ambiguous compiler error so I no no wanna)
 void loop() {
 
 }
