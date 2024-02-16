@@ -9,9 +9,6 @@
 #include "peanutgb/peanut_gb.h"
 #include "SD.h"
 
-// TODO: Make a menu to pick ROM files from the SD card
-#define ROM_FILE "/rom.gb"
-
 #define DEST_W 240
 #define DEST_H 135
 
@@ -167,10 +164,33 @@ void draw_frame(uint32_t fb[144][160]) {
 
 #endif
 
+// Shorten ROM display names if they're too long.
+// Memory alloc with C strings is hard so this goes unused for now
+//char* clamp_str(char* input) {
+//  if(strlen(input) > 10) {
+//    char* output = (char*)malloc(sizeof(char)*4+sizeof(char)*strlen(input));
+//    for (int i = 0; i < 9; i++) {
+//      output[i] = input[i];
+//    }
+//    sprintf(output, "%s...", input);
+//    return output;
+//  } else {
+//    return input;
+//  }
+//}
+
+void set_font_size(int size) {
+  int textsize = M5Cardputer.Display.height() / size;
+  if(textsize == 0) {
+    textsize = 1;
+  }
+  M5Cardputer.Display.setTextSize(textsize);
+}
+
 // Opens a ROM file picker menu
 // and returns a string containing
 // the path of the picked ROM.
-char* file_picker(int text_size) {
+char* file_picker() {
   // Open SD card root dir.
   File root_dir = SD.open("/");
   String file_list[MAX_FILES];
@@ -255,20 +275,21 @@ char* file_picker(int text_size) {
         // Down: s
         // Play: l
         switch(i) {
-          case 'e':
+          case ';':
             select_index--;
             delay(300);
             break;
-          case 's':
+          case '.':
             select_index++;
             delay(300);
-            break;
-          case 'l':
-            file_picked = true;
             break;
           default:
             break;
         }
+      }
+
+      if(status.enter) {
+        file_picked = true;
       }
     }
 
@@ -282,17 +303,37 @@ char* file_picker(int text_size) {
     }
 
     // Render controls
-    M5Cardputer.Display.drawString("Up/Down: E/S; Select: L", 0, 0);
+    // M5Cardputer.Display.drawString("Up/Down: E/S; Select: L", 0, 0);
+
+    //M5Cardputer.Display.setTextDatum(MC_DATUM);
+
+    const int dispW = M5Cardputer.Display.width();
+    const int dispH = M5Cardputer.Display.height();
 
     // Render list
     for(int i = 0; i < file_list_size; i++) {
       // Add an arrow to point to 
       // the currently selected file
+
       if(select_index == i) {
-        M5Cardputer.Display.drawString(" > ", 0, 10+i*10);
-        M5Cardputer.Display.drawString(file_list_cstr[i], 20, 10+i*10);
-      } else {
-        M5Cardputer.Display.drawString(file_list_cstr[i], 0, 10+i*10);
+        set_font_size(64);
+        int textW = M5Cardputer.Display.textWidth(file_list_cstr[i]);
+        int textH = M5Cardputer.Display.fontHeight();
+
+        M5Cardputer.Display.drawString(" > ", 0, (dispH/2)-(textH/2));
+        M5Cardputer.Display.drawString(file_list_cstr[i], (dispW/2)-(textW/2), (dispH/2)-(textH/2));
+      } else if(i == select_index-1) {
+        set_font_size(128);
+        int textW = M5Cardputer.Display.textWidth(file_list_cstr[i]);
+        int textH = M5Cardputer.Display.fontHeight();
+
+        M5Cardputer.Display.drawString(file_list_cstr[i], (dispW/2)-(textW/2), (dispH/2)-(textH/2)-textH*2);
+      } else if(i == select_index+1) {
+        set_font_size(128);
+        int textW = M5Cardputer.Display.textWidth(file_list_cstr[i]);
+        int textH = M5Cardputer.Display.fontHeight();
+
+        M5Cardputer.Display.drawString(file_list_cstr[i], (dispW/2)-(textW/2), (dispH/2)-(textH/2)+textH*2);
       }
     }
   }
@@ -303,6 +344,12 @@ char* file_picker(int text_size) {
   return selected_path;
 }
 
+#if ENABLE_SOUND
+void audioSetup() {
+  // headache. stopped here lol
+}
+#endif
+
 void setup() {
   // put your setup code here, to run once:
 
@@ -311,13 +358,13 @@ void setup() {
   // Use keyboard.
   M5Cardputer.begin(cfg, true);
 
+#if ENABLE_SOUND
+  M5Cardputer.Speaker.begin();
+#endif
+
   // Set display rotation to horizontal.
   M5Cardputer.Display.setRotation(1);
-  int textsize = M5Cardputer.Display.height() / 256;
-  if(textsize == 0) {
-    textsize = 1;
-  }
-  M5Cardputer.Display.setTextSize(textsize);
+  set_font_size(64);
 
   // Initialize SD card.
   // Some of this code is taken from
@@ -340,7 +387,7 @@ void setup() {
 
   
   debugPrint("Before filepick");
-  char* selected_file = file_picker(textsize);
+  char* selected_file = file_picker();
   debugPrint(selected_file);
   debugPrint("After filepick");
 
